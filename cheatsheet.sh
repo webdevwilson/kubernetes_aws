@@ -2,6 +2,7 @@
 
 STATE_BUCKET=$1
 DNS_NAME=$2
+ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
 
 if [ -z "${DNS_NAME}" ]; then
     printf "Usage: %s <state_bucket> <dns_name>\n" $0
@@ -24,16 +25,16 @@ aws route53 create-hosted-zone \
 | jq .DelegationSet.NameServers
 
 # create kubernetes cluster
-kops create cluster --name kubes.kwilson.reluslabs.com --zones us-east-1a --state s3://kwilson-kops-state --yes
+kops create cluster --name ${DNS_NAME} --zones us-east-1a --state s3://${STATE_BUCKET} --yes
 
 # validate the cluster
-kops validate cluster --state s3://kwilson-kops-state
+kops validate cluster --state s3://${STATE_BUCKET}
 
 # create kubernetes ui
 kubectl create -f https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml
 
 # get password
-kubectl config view -o jsonpath='{.users[?(@.name == "kubes.kwilson.reluslabs.com")].user.password}'
+kubectl config view -o jsonpath='{.users[?(@.name == "${DNS_NAME}")].user.password}'
 
 # navigate to dashboard
 open https://kubes.kwilson.reluslabs.com/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/
@@ -42,14 +43,14 @@ open https://kubes.kwilson.reluslabs.com/api/v1/namespaces/kube-system/services/
 aws ecr create-repository --repository-name=hello-ecr --query "repository.repositoryUri"
 
 # build docker image
-docker build -t 193247949635.dkr.ecr.us-east-1.amazonaws.com/hello-ecr:latest .
+docker build -t ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/hello-ecr:latest .
 
 # tag docker image
 `aws ecr get-login --no-include-email --region us-east-1`
-docker push 193247949635.dkr.ecr.us-east-1.amazonaws.com/hello-ecr:latest
+docker push ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/hello-ecr:latest
 
 # run the image in kubernetes
-kubectl run hello-ecr --image=193247949635.dkr.ecr.us-east-1.amazonaws.com/hello-ecr:latest --replicas=2 --port=80
+kubectl run hello-ecr --image=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/hello-ecr:latest --replicas=2 --port=80
 
 # expose the service
 kubectl expose deployment hello-ecr --port=80 --type=LoadBalancer
